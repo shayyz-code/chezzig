@@ -489,9 +489,10 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
     var s = initBoard();
-    const human_plays: Color = .white;
+    var human_plays: Color = .white;
     var selected: ?u8 = null;
     var running = true;
+    var game_over = false;
 
     while (running) {
         var evt: c.SDL_Event = undefined;
@@ -499,6 +500,7 @@ pub fn main() !void {
             switch (evt.type) {
                 c.SDL_QUIT => running = false,
                 c.SDL_MOUSEBUTTONDOWN => {
+                    if (game_over) break;
                     const mx: i32 = evt.button.x;
                     const my: i32 = evt.button.y;
                     const file = @as(u8, @intCast(@divTrunc(mx, tile)));
@@ -538,17 +540,26 @@ pub fn main() !void {
                     }
                 },
                 c.SDL_KEYDOWN => {
-                    if (evt.key.keysym.sym == c.SDLK_ESCAPE) running = false;
+                    if (evt.key.keysym.sym == c.SDLK_ESCAPE) {
+                        running = false;
+                    } else if (evt.key.keysym.sym == c.SDLK_w) {
+                        human_plays = .white;
+                    } else if (evt.key.keysym.sym == c.SDLK_b) {
+                        human_plays = .black;
+                    }
                 },
                 else => {},
             }
         }
 
-        if (s.side_to_move != human_plays) {
+        if (!game_over and s.side_to_move != human_plays) {
             if (try chooseAIMove(&s, allocator)) |m| {
                 makeMove(&s, m);
             }
         }
+
+        const end_state = try isCheckmateOrStalemate(&s, allocator);
+        game_over = end_state != .none;
 
         _ = c.SDL_SetRenderDrawColor(renderer, 20, 20, 20, 255);
         _ = c.SDL_RenderClear(renderer);
@@ -582,6 +593,22 @@ pub fn main() !void {
             }
         }
         c.SDL_RenderPresent(renderer);
+        var title_buf: [128]u8 = undefined;
+        const side_txt = if (human_plays == .white) "White" else "Black";
+        const turn_txt = if (s.side_to_move == .white) "White" else "Black";
+        const status_suffix = switch (end_state) { .none => "", .checkmate => " | Checkmate", .stalemate => " | Stalemate" };
+        const title = try std.fmt.bufPrintZ(&title_buf, "chezzig-gui | Side:{s} | Turn:{s} | FM:{d} HM:{d}{s}", .{ side_txt, turn_txt, s.fullmove, s.halfmove, status_suffix });
+        c.SDL_SetWindowTitle(window, title.ptr);
         c.SDL_Delay(10);
     }
+}
+
+fn isCheckmateOrStalemate(s: *State, allocator: std.mem.Allocator) !enum { none, checkmate, stalemate } {
+    const in_check = attackedByColor(s, if (s.side_to_move == .white) s.wk_pos else s.bk_pos, otherColor(s.side_to_move));
+    var moves = try legalMoves(s, allocator);
+    defer moves.deinit(allocator);
+    if (moves.items.len == 0) {
+        return if (in_check) .checkmate else .stalemate;
+    }
+    return .none;
 }

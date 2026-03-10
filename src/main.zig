@@ -511,7 +511,11 @@ fn isCheckmateOrStalemate(s: *State, allocator: std.mem.Allocator) !enum { none,
 }
 
 fn printTurnInfo(s: *const State, writer: anytype) !void {
-    try writer.print("{s} to move\n", .{if (s.side_to_move == .white) "White" else "Black"});
+    try writer.print("{s} to move — FM:{d} HM:{d}\n", .{
+        if (s.side_to_move == .white) "White" else "Black",
+        s.fullmove,
+        s.halfmove,
+    });
 }
 
 fn moveToString(m: Move, buf: *[6]u8) []const u8 {
